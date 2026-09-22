@@ -404,6 +404,10 @@ void pollUART(void)
         {
             stopwatchPauseResumeToggle();
         }
+        else if(strcmp(uartBuffer, "SWSTATUS") == 0)
+                {
+                    sendStopwatchStatus();
+                }
         else if(uartIndex > 0)
         {
             UART0_SendString("Unknown command\r\n");
