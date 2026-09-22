@@ -1,8 +1,8 @@
-# TM4C123 Keypad Stopwatch
+# TM4C123 Light + Keypad Stopwatch
 
 A TM4C123GH6PM LaunchPad program combining an LED blink-rate/colour
-controller with a stopwatch driven by the EduARM4 keypad.
-
+controller with a stopwatch that can be driven either from the EduARM4
+keypad or from the UART console.
 
 ## What it does
 
@@ -14,13 +14,13 @@ controller with a stopwatch driven by the EduARM4 keypad.
   pressing both together pauses or resumes.
 - UART0 (115200-8-N-1) mirrors the LED state and can also drive it:
   `RATE`, `COLOUR`, `PAUSE`, `RESUME`, `STATUS`.
-- A stopwatch, controlled by three keys on the EduARM4 keypad:
+- A stopwatch, controllable from either the keypad or the UART console:
 
-  | Key | Action |
-  |-----|--------|
-  | "1" | Enable / disable the stopwatch |
-  | "2" | Start / stop the stopwatch |
-  | "3" | Pause / resume the stopwatch |
+  | Action | Keypad key | UART command |
+  |--------|-----------|--------------|
+  | Enable / disable | "1" | `SWENABLE` |
+  | Start / stop | "2" | `SWSTART` |
+  | Pause / resume | "3" | `SWPAUSE` |
 
 - The moment the stopwatch is enabled, the 4-digit display switches
   from the LED readout to the stopwatch's elapsed time (`MM:SS`), and
@@ -53,6 +53,14 @@ just two entries — SysTick and GPIO Port C — to point at this
 program's real handlers. This is done entirely from `main.c`; no
 startup-file changes are needed.
 
+## How the keypad and the UART stay in sync
+
+Three functions hold the actual stopwatch logic: `stopwatchEnableToggle()`,
+`stopwatchStartStopToggle()`, and `stopwatchPauseResumeToggle()`. Both
+the keypad's interrupt handler and the UART command parser call these
+same three functions, so pressing a key and typing its matching
+command are guaranteed to do exactly the same thing.
+
 ## Building
 
 Standard Code Composer Studio project, GNU ARM compiler. Self-contained
@@ -66,16 +74,20 @@ definition" linker errors.
 Connect at **115200 baud, 8 data bits, no parity, 1 stop bit**, then
 type a command and press Enter (case-sensitive, all caps):
 
-| Command  | Effect                                      |
-|----------|-----------------------------------------------|
-| `RATE`   | Advances the blink rate by one (wraps 7→0)   |
-| `COLOUR` | Advances the colour by one (wraps 7→0)       |
-| `PAUSE`  | Pauses the lights (message if already paused) |
-| `RESUME` | Resumes the lights (message if already running) |
-| `STATUS` | Reports the current rate, colour, state, and stopwatch status |
+| Command    | Effect                                      |
+|------------|------------------------------------------------|
+| `RATE`     | Advances the blink rate by one (wraps 7→0)   |
+| `COLOUR`   | Advances the colour by one (wraps 7→0)       |
+| `PAUSE`    | Pauses the lights (message if already paused) |
+| `RESUME`   | Resumes the lights (message if already running) |
+| `STATUS`   | Reports the current rate, colour, state, and stopwatch status |
+| `SWENABLE` | Enables/disables the stopwatch (same as key "1") |
+| `SWSTART`  | Starts/stops the stopwatch (same as key "2") |
+| `SWPAUSE`  | Pauses/resumes the stopwatch (same as key "3") |
 
-The stopwatch itself is controlled only from the keypad, using the
-three keys listed above.
+If a command says "Unknown command" and the spelling/capitalization is
+correct, the board is very likely running an older build — do a full
+Clean + rebuild in CCS and reflash.
 
 ## Notes
 
