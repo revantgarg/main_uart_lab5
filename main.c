@@ -438,42 +438,15 @@ void pollUART(void)
 // needed, which is what lets this be a genuine interrupt (vs. the
 // polled scanning method used for the plain 4x4-keypad exercise).
 //
-// The project's startup file (tm4c123gh6pm_startup_ccs_gcc.c) points every
-// interrupt at IntDefaultHandler (an infinite loop) and isn't ours to edit.
-// So instead of touching it, we relocate the vector table into RAM at boot,
-// patch just the two entries we need, and tell the CPU to use that copy
-// instead - the flash table (and the startup file) is never modified.
-//
-// Vector index 15 = SysTick, index 18 = IRQ2 = GPIO Port C. These numbers
-// come from the standard Cortex-M exception numbering (system exceptions
-// are 1-15, external interrupts IRQ0.. start at 16) and match the order
-// of g_pfnVectors[] in the startup file.
-#define NUM_VECTORS 155
-extern void (* const g_pfnVectors[])(void);     // the flash-resident table
-static uint32_t ramVectors[NUM_VECTORS] __attribute__((aligned(1024)));
+// SysTick_Handler and GPIOPortC_Handler are wired up directly in the
+// startup file's vector table now (see the accompanying startup file
+// patch) - no runtime relocation needed any more.
 
 void SysTick_Handler(void);       // defined further down, in the ISR section
 void GPIOPortC_Handler(void);     // defined further down, in the ISR section
 
-void RelocateVectorTable(void)
-{
-    for(int i = 0; i < NUM_VECTORS; i++)
-    {
-        ramVectors[i] = (uint32_t)g_pfnVectors[i];
-    }
-
-    ramVectors[15] = (uint32_t)SysTick_Handler;     // was IntDefaultHandler
-    ramVectors[18] = (uint32_t)GPIOPortC_Handler;   // was IntDefaultHandler
-
-    *((volatile uint32_t *)0xE000ED08) = (uint32_t)ramVectors;   // NVIC VTABLE
-}
-
 void Stopwatch_Init(void)
 {
-    // Point the CPU at our patched RAM copy of the vector table before
-    // anything below can possibly fire an interrupt.
-    RelocateVectorTable();
-
     // Port E, pin 0: the keypad row we use, held low all the time.
     GPIO_PORTE_DIR_R |= 0x01;      // PE0 output
     GPIO_PORTE_ODR_R |= 0x01;      // open-drain (matches the keypad app note:
