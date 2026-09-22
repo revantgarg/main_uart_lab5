@@ -69,7 +69,6 @@ uint8_t getHEXNumber(int number)
 }
 
 
-
 void changeColour(int colourValue){
     switch(colourValue)
             {
@@ -296,6 +295,53 @@ void sendStopwatchStatus(void)
     UART0_SendString("\r\n");
 }
 
+// --- Stopwatch actions ----------------------------------------------------
+// The same three actions the keypad triggers (see GPIOPortC_Handler further
+// down), pulled out here so both the keypad interrupt AND UART commands
+// drive the exact same logic instead of two copies that could drift apart.
+
+void stopwatchEnableToggle(void)
+{
+    if(swState == SW_DISABLED)
+    {
+        swState = SW_IDLE;
+        swCentis = 0;
+    }
+    else
+    {
+        swState = SW_DISABLED;
+        swCentis = 0;
+    }
+    sendStopwatchStatus();
+}
+
+void stopwatchStartStopToggle(void)
+{
+    if(swState == SW_IDLE)
+    {
+        swState = SW_RUNNING;
+    }
+    else if(swState == SW_RUNNING || swState == SW_PAUSED)
+    {
+        swState = SW_IDLE;
+        swCentis = 0;
+    }
+    sendStopwatchStatus();
+}
+
+void stopwatchPauseResumeToggle(void)
+{
+    if(swState == SW_RUNNING)
+    {
+        swState = SW_PAUSED;
+    }
+    else if(swState == SW_PAUSED)
+    {
+        swState = SW_RUNNING;
+    }
+    sendStopwatchStatus();
+}
+
 void pollUART(void)
 {
     if(!UART0_CharAvail())
@@ -346,6 +392,18 @@ void pollUART(void)
                 UART0_SendString("Light is already running");
             }
                 }
+        else if(strcmp(uartBuffer, "SWENABLE") == 0)
+        {
+            stopwatchEnableToggle();
+        }
+        else if(strcmp(uartBuffer, "SWSTART") == 0)
+        {
+            stopwatchStartStopToggle();
+        }
+        else if(strcmp(uartBuffer, "SWPAUSE") == 0)
+        {
+            stopwatchPauseResumeToggle();
+        }
         else if(uartIndex > 0)
         {
             UART0_SendString("Unknown command\r\n");
@@ -465,49 +523,19 @@ void GPIOPortC_Handler(void)
     if((status & 0x10) && (msTicks - lastPress[0] > DEBOUNCE_TICKS))   // key "1"
     {
         lastPress[0] = msTicks;
-
-        if(swState == SW_DISABLED)
-        {
-            swState = SW_IDLE;
-            swCentis = 0;
-        }
-        else
-        {
-            swState = SW_DISABLED;
-            swCentis = 0;
-        }
-        sendStopwatchStatus();
+        stopwatchEnableToggle();
     }
 
     if((status & 0x20) && (msTicks - lastPress[1] > DEBOUNCE_TICKS))   // key "2"
     {
         lastPress[1] = msTicks;
-
-        if(swState == SW_IDLE)
-        {
-            swState = SW_RUNNING;
-        }
-        else if(swState == SW_RUNNING || swState == SW_PAUSED)
-        {
-            swState = SW_IDLE;
-            swCentis = 0;
-        }
-        sendStopwatchStatus();
+        stopwatchStartStopToggle();
     }
 
     if((status & 0x40) && (msTicks - lastPress[2] > DEBOUNCE_TICKS))   // key "3"
     {
         lastPress[2] = msTicks;
-
-        if(swState == SW_RUNNING)
-        {
-            swState = SW_PAUSED;
-        }
-        else if(swState == SW_PAUSED)
-        {
-            swState = SW_RUNNING;
-        }
-        sendStopwatchStatus();
+        stopwatchPauseResumeToggle();
     }
 
     GPIO_PORTC_ICR_R = 0x70;   // clear all three flags, whichever fired
@@ -546,6 +574,7 @@ int main(void)
     Stopwatch_Init();
 
     UART0_SendString("LED Blinky, RATE FOR INCREMENTING THE RATE, COLOUR FOR INCREMENTING THE COLOUR, PAUSE FOR PAUSING THE LIGHTS , RUNNING FOR RESUMING, STATUS FOR STATUS");
+    UART0_SendString("Stopwatch commands: SWENABLE SWSTART SWPAUSE\r\n");
     UART0_SendString("Keypad: 1=Enable/Disable stopwatch  2=Start/Stop  3=Pause/Resume\r\n");
     sendStatus();
 
