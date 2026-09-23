@@ -11,16 +11,17 @@
 int rate = 0;
 int colour = 0;
 int isLightsPaused = 0;
+int delay = 2000;
 
 static char uartBuffer[16];
 static uint8_t uartIndex = 0;
 
 typedef enum
 {
-    SW_DISABLED = 0,   // stopwatch off; display shows the lab4 LED readout
-    SW_IDLE,           // enabled, elapsed = 0, not counting
-    SW_RUNNING,        // counting up
-    SW_PAUSED          // counting frozen, elapsed retained
+    SW_DISABLED = 0,
+    SW_IDLE,
+    SW_RUNNING,
+    SW_PAUSED
 } StopwatchState;
 
 volatile StopwatchState swState = SW_DISABLED;
@@ -67,7 +68,46 @@ uint8_t getHEXNumber(int number)
         return 0x00;
     }
 }
+void updateRate(int rate){
+    switch(rate)
+            {
+            case 0:
+                delay = 2000;
+                break;
 
+            case 1:
+                delay = 1500;
+                break;
+
+            case 2:
+                delay = 1000;
+                break;
+
+            case 3:
+                delay = 750;
+                break;
+
+            case 4:
+                delay = 500;
+                break;
+
+            case 5:
+                delay = 200;
+                break;
+
+            case 6:
+                delay = 100;
+                break;
+
+            case 7:
+                delay = 50;
+                break;
+
+            default:
+                delay = 250;
+                break;
+            }
+}
 
 void changeColour(int colourValue){
     switch(colourValue)
@@ -163,7 +203,7 @@ void refresh7SegmentDisplay(int isLightsPausedValue, int colourValue, int rateVa
 void displayStopwatch(uint32_t centis)
 {
     uint32_t totalSeconds = centis / 100;
-    uint32_t minutes = (totalSeconds / 60) % 100;   // clamp to 2 digits
+    uint32_t minutes = (totalSeconds / 60) % 100;
     uint32_t seconds = totalSeconds % 60;
 
     displayDigit(4, getHEXNumber(minutes / 10));
@@ -178,7 +218,7 @@ void displayStopwatch(uint32_t centis)
     displayDigit(1, getHEXNumber(seconds % 10));
     delayRefresh(500);
 }
-//check whether to show stopwatch or colour sequence
+
 void updateDisplay(void)
 {
     if(swState == SW_DISABLED)
@@ -193,43 +233,34 @@ void updateDisplay(void)
 
 void UART0_Init(void)
 {
-
-    SYSCTL_RCGCUART_R |= 0x01; // we will try to enable the clock for uart console
+    SYSCTL_RCGCUART_R |= 0x01;
 
     delayRefresh(10);
 
-    GPIO_PORTA_AFSEL_R |= 0x03;                 // we will try to have alternate function for Port a instead of the regular gpio
+    GPIO_PORTA_AFSEL_R |= 0x03;
     GPIO_PORTA_PCTL_R   = (GPIO_PORTA_PCTL_R & 0xFFFFFF00) |
                            GPIO_PCTL_PA0_U0RX | GPIO_PCTL_PA1_U0TX;
-    GPIO_PORTA_DEN_R   |= 0x03;                 // digital enable PA0, PA1
-    GPIO_PORTA_AMSEL_R &= ~0x03;                // no analog on PA0, PA1
+    GPIO_PORTA_DEN_R   |= 0x03;
+    GPIO_PORTA_AMSEL_R &= ~0x03;
 
-    UART0_CTL_R &= ~UART_CTL_UARTEN; // we need to disable the uart while we are configuring as these are critical and we might create issue. requires UARTCTL not be modified while the UART is enabled
+    UART0_CTL_R &= ~UART_CTL_UARTEN;
 
-    // Baud rate = 115200 with a 16 MHz system clock.
-    //    BRD = 16,000,000 / (16 * 115200) = 8.6806
-    //    UARTFBRD = 0.6806 * 64 + 0.5 = 44
-    UART0_IBRD_R = 8; // only the integer part
+    // 115200 baud @ 16 MHz
+    UART0_IBRD_R = 8;
     UART0_FBRD_R = 44;
 
-    // 8 data bits, 1 stop bit, no parity, FIFOs disabled.
     UART0_LCRH_R = UART_LCRH_WLEN_8;
-
-    // we will use system clock
     UART0_CC_R = 0x0;
 
-    // enableuart tx and rx
     UART0_CTL_R |= (UART_CTL_UARTEN | UART_CTL_TXE | UART_CTL_RXE);
 }
 
-// Blocking transmit of a single character.
 void UART0_SendChar(char data)
 {
-    while (UART0_FR_R & UART_FR_TXFF) { }   // wait while Tx is full
+    while (UART0_FR_R & UART_FR_TXFF) { }
     UART0_DR_R = data;
 }
 
-// Blocking transmit of a null-terminated string.
 void UART0_SendString(const char *str)
 {
     while (*str)
@@ -239,23 +270,17 @@ void UART0_SendString(const char *str)
     }
 }
 
-// Non-blocking check, mirroring UARTCharsAvail from the TivaWare sample,
-// so the calling code can poll it once per main-loop pass without ever
-// stalling on an empty RX.
 int UART0_CharAvail(void)
 {
-    return ((UART0_FR_R & UART_FR_RXFE) == 0);   // RXFE==0 means a byte is waiting
+    return ((UART0_FR_R & UART_FR_RXFE) == 0);
 }
 
-// Blocking read of a single character.
 char UART0_GetChar(void)
 {
-    while (UART0_FR_R & UART_FR_RXFE) { }   // wait for a byte to arrive
+    while (UART0_FR_R & UART_FR_RXFE) { }
     return (char)(UART0_DR_R & 0xFF);
 }
 
-
-// --- UART: report current LED/blink state ---------------------------------
 void sendStatus(void)
 {
     UART0_SendString("Rate: ");
@@ -267,7 +292,6 @@ void sendStatus(void)
     UART0_SendString("\r\n");
 }
 
-// --- UART: report current stopwatch state ---------------------------------
 void sendStopwatchStatus(void)
 {
     const char *label;
@@ -295,51 +319,89 @@ void sendStopwatchStatus(void)
     UART0_SendString("\r\n");
 }
 
-// --- Stopwatch actions ----------------------------------------------------
-// The same three actions the keypad triggers (see GPIOPortC_Handler further
-// down), pulled out here so both the keypad interrupt AND UART commands
-// drive the exact same logic instead of two copies that could drift apart.
+// Explicit stopwatch actions (mirrors RATE/COLOUR/PAUSE/RESUME style on the
+// LED side: each command does one specific thing, not a toggle). Shared by
+// both the UART parser and the keypad handler.
 
-void stopwatchEnableToggle(void)
+void stopwatchEnable(void)
 {
     if(swState == SW_DISABLED)
     {
         swState = SW_IDLE;
         swCentis = 0;
+        sendStopwatchStatus();
     }
     else
     {
-        swState = SW_DISABLED;
-        swCentis = 0;
+        UART0_SendString("Stopwatch already enabled\r\n");
     }
-    sendStopwatchStatus();
 }
 
-void stopwatchStartStopToggle(void)
+void stopwatchDisable(void)
+{
+    if(swState != SW_DISABLED)
+    {
+        swState = SW_DISABLED;
+        swCentis = 0;
+        sendStopwatchStatus();
+    }
+    else
+    {
+        UART0_SendString("Stopwatch already disabled\r\n");
+    }
+}
+
+void stopwatchStart(void)
 {
     if(swState == SW_IDLE)
     {
         swState = SW_RUNNING;
+        sendStopwatchStatus();
     }
-    else if(swState == SW_RUNNING || swState == SW_PAUSED)
+    else
+    {
+        UART0_SendString("Stopwatch cannot start from current state\r\n");
+    }
+}
+
+void stopwatchStop(void)
+{
+    if(swState == SW_RUNNING || swState == SW_PAUSED)
     {
         swState = SW_IDLE;
         swCentis = 0;
+        sendStopwatchStatus();
     }
-    sendStopwatchStatus();
+    else
+    {
+        UART0_SendString("Stopwatch already stopped\r\n");
+    }
 }
 
-void stopwatchPauseResumeToggle(void)
+void stopwatchPause(void)
 {
     if(swState == SW_RUNNING)
     {
         swState = SW_PAUSED;
+        sendStopwatchStatus();
     }
-    else if(swState == SW_PAUSED)
+    else
+    {
+        UART0_SendString("Stopwatch is not running\r\n");
+    }
+}
+
+void stopwatchResume(void)
+{
+    if(swState == SW_PAUSED)
     {
         swState = SW_RUNNING;
+        sendStopwatchStatus();
     }
-    sendStopwatchStatus();
+    else
+    {
+        UART0_SendString("Stopwatch is not paused\r\n");
+    }
 }
 
 void pollUART(void)
@@ -359,6 +421,7 @@ void pollUART(void)
         if(strcmp(uartBuffer, "RATE") == 0)
         {
             rate = (rate + 1) > 7 ? 0 : rate + 1;
+            updateRate(rate);
             sendStatus();
         }
         else if(strcmp(uartBuffer, "COLOUR") == 0)
@@ -394,20 +457,32 @@ void pollUART(void)
                 }
         else if(strcmp(uartBuffer, "SWENABLE") == 0)
         {
-            stopwatchEnableToggle();
+            stopwatchEnable();
+        }
+        else if(strcmp(uartBuffer, "SWDISABLE") == 0)
+        {
+            stopwatchDisable();
         }
         else if(strcmp(uartBuffer, "SWSTART") == 0)
         {
-            stopwatchStartStopToggle();
+            stopwatchStart();
+        }
+        else if(strcmp(uartBuffer, "SWSTOP") == 0)
+        {
+            stopwatchStop();
         }
         else if(strcmp(uartBuffer, "SWPAUSE") == 0)
         {
-            stopwatchPauseResumeToggle();
+            stopwatchPause();
+        }
+        else if(strcmp(uartBuffer, "SWRESUME") == 0)
+        {
+            stopwatchResume();
         }
         else if(strcmp(uartBuffer, "SWSTATUS") == 0)
-                {
-                    sendStopwatchStatus();
-                }
+        {
+            sendStopwatchStatus();
+        }
         else if(uartIndex > 0)
         {
             UART0_SendString("Unknown command\r\n");
@@ -422,61 +497,39 @@ void pollUART(void)
 }
 
 
-// =========================================================================
-// Keypad stopwatch (GPIO-interrupt driven)
-// =========================================================================
-//
-// EduARM4 board wiring (from the board's schematic):
-//   Row 0    -> PE0   (we drive this permanently low, open-drain)
-//   Column 0 -> PC4   (key "1")  -> Enable / Disable
-//   Column 1 -> PC5   (key "2")  -> Start / Stop
-//   Column 2 -> PC6   (key "3")  -> Pause / Resume
-//
-// Because all three keys share one row that's held low all the time,
-// a falling edge on a column pin is unambiguous: it can only mean the
-// key at that column, in that row, was just pressed. No scanning is
-// needed, which is what lets this be a genuine interrupt (vs. the
-// polled scanning method used for the plain 4x4-keypad exercise).
-//
-// SysTick_Handler and GPIOPortC_Handler are wired up directly in the
-// startup file's vector table now (see the accompanying startup file
-// patch) - no runtime relocation needed any more.
+// Keypad stopwatch control: row 0 (PE0) held low, columns PC4/PC5/PC6
+// wired to keys 1/2/3. A falling edge on a column is unambiguous since
+// only one row is ever active, so no scanning is needed.
 
-void SysTick_Handler(void);       // defined further down, in the ISR section
-void GPIOPortC_Handler(void);     // defined further down, in the ISR section
+void SysTick_Handler(void);
+void GPIOPortC_Handler(void);
 
 void Stopwatch_Init(void)
 {
-    // Port E, pin 0: the keypad row we use, held low all the time.
-    GPIO_PORTE_DIR_R |= 0x01;      // PE0 output
-    GPIO_PORTE_ODR_R |= 0x01;      // open-drain (matches the keypad app note:
-                                   // protects the pin if two keys in the same
-                                   // column are pressed at once)
+    GPIO_PORTE_DIR_R |= 0x01;
+    GPIO_PORTE_ODR_R |= 0x01;     // open-drain row
     GPIO_PORTE_DEN_R |= 0x01;
-    GPIO_PORTE_DATA_R &= ~0x01;    // drive the row low
+    GPIO_PORTE_DATA_R &= ~0x01;   // row held low
 
-    // Port C, pins 4-6: the three keypad columns we're reading.
-    GPIO_PORTC_AFSEL_R &= ~0x70;   // plain GPIO, not an alternate function
-    GPIO_PORTC_AMSEL_R &= ~0x70;   // digital, not analog
-    GPIO_PORTC_DIR_R   &= ~0x70;   // inputs
-    GPIO_PORTC_PUR_R   |= 0x70;    // pull-ups (reads high until a key pulls it low)
+    GPIO_PORTC_AFSEL_R &= ~0x70;
+    GPIO_PORTC_AMSEL_R &= ~0x70;
+    GPIO_PORTC_DIR_R   &= ~0x70;
+    GPIO_PORTC_PUR_R   |= 0x70;
     GPIO_PORTC_DEN_R   |= 0x70;
 
-    // Interrupt setup: edge-sensitive, single edge, falling edge.
-    GPIO_PORTC_IS_R  &= ~0x70;     // edge-sensitive (not level)
-    GPIO_PORTC_IBE_R &= ~0x70;     // single edge (not both)
-    GPIO_PORTC_IEV_R &= ~0x70;     // 0 = falling edge
-    GPIO_PORTC_ICR_R  = 0x70;      // clear any stale flags
-    GPIO_PORTC_IM_R  |= 0x70;      // unmask PC4, PC5, PC6
+    GPIO_PORTC_IS_R  &= ~0x70;    // edge sensitive
+    GPIO_PORTC_IBE_R &= ~0x70;    // single edge
+    GPIO_PORTC_IEV_R &= ~0x70;    // falling edge
+    GPIO_PORTC_ICR_R  = 0x70;
+    GPIO_PORTC_IM_R  |= 0x70;
 
-    NVIC_EN0_R |= (1 << 2);        // enable IRQ 2 = GPIO Port C
+    NVIC_EN0_R |= (1 << 2);       // IRQ 2 = GPIO Port C
 
-    // SysTick: periodic 10 ms tick off a 16 MHz system clock, used both
-    // as the stopwatch's timebase and as the debounce clock.
-    NVIC_ST_CTRL_R    = 0;                 // disable while configuring
-    NVIC_ST_RELOAD_R  = 160000 - 1;        // 16,000,000 * 0.010 s - 1
-    NVIC_ST_CURRENT_R = 0;                 // clear current value
-    NVIC_ST_CTRL_R    = 0x07;              // ENABLE | INTEN | use system clock
+    // SysTick: 10 ms tick @ 16 MHz system clock
+    NVIC_ST_CTRL_R    = 0;
+    NVIC_ST_RELOAD_R  = 160000 - 1;
+    NVIC_ST_CURRENT_R = 0;
+    NVIC_ST_CTRL_R    = 0x07;
 }
 
 void SysTick_Handler(void)
@@ -486,7 +539,7 @@ void SysTick_Handler(void)
     if(swState == SW_RUNNING)
     {
         swCentis++;
-        if(swCentis >= 360000)   // wrap after 1 hour (100 * 3600)
+        if(swCentis >= 360000)   // wrap after 1 hour
         {
             swCentis = 0;
         }
@@ -495,27 +548,30 @@ void SysTick_Handler(void)
 
 void GPIOPortC_Handler(void)
 {
-    uint32_t status = GPIO_PORTC_MIS_R & 0x70;   // which of PC4/5/6 fired
+    uint32_t status = GPIO_PORTC_MIS_R & 0x70;
 
-    if((status & 0x10) && (msTicks - lastPress[0] > DEBOUNCE_TICKS))   // key "1"
+    if((status & 0x10) && (msTicks - lastPress[0] > DEBOUNCE_TICKS))   // key 1
     {
         lastPress[0] = msTicks;
-        stopwatchEnableToggle();
+        if(swState == SW_DISABLED) stopwatchEnable();
+        else stopwatchDisable();
     }
 
-    if((status & 0x20) && (msTicks - lastPress[1] > DEBOUNCE_TICKS))   // key "2"
+    if((status & 0x20) && (msTicks - lastPress[1] > DEBOUNCE_TICKS))   // key 2
     {
         lastPress[1] = msTicks;
-        stopwatchStartStopToggle();
+        if(swState == SW_IDLE) stopwatchStart();
+        else if(swState == SW_RUNNING || swState == SW_PAUSED) stopwatchStop();
     }
 
-    if((status & 0x40) && (msTicks - lastPress[2] > DEBOUNCE_TICKS))   // key "3"
+    if((status & 0x40) && (msTicks - lastPress[2] > DEBOUNCE_TICKS))   // key 3
     {
         lastPress[2] = msTicks;
-        stopwatchPauseResumeToggle();
+        if(swState == SW_RUNNING) stopwatchPause();
+        else if(swState == SW_PAUSED) stopwatchResume();
     }
 
-    GPIO_PORTC_ICR_R = 0x70;   // clear all three flags, whichever fired
+    GPIO_PORTC_ICR_R = 0x70;
 }
 
 
@@ -524,15 +580,10 @@ int main(void)
     int switch1Value = 1;
     int switch2Value = 1;
 
-    int delay;
-
     int waiting = 0;
     int waitCount = 0;
 
-
-    // Port A, B, C, E, F clocks: A/B/F for the 7-seg + on-board switches
-    // (as before), C for the keypad columns, E for the keypad row.
-    SYSCTL_RCGC2_R |= 0x00000037;
+    SYSCTL_RCGC2_R |= 0x00000037;   // Ports A, B, C, E, F
 
     GPIO_PORTF_LOCK_R = 0x4C4F434B;
     GPIO_PORTF_CR_R |= 0x01;
@@ -551,51 +602,14 @@ int main(void)
     Stopwatch_Init();
 
     UART0_SendString("LED Blinky, RATE FOR INCREMENTING THE RATE, COLOUR FOR INCREMENTING THE COLOUR, PAUSE FOR PAUSING THE LIGHTS , RUNNING FOR RESUMING, STATUS FOR STATUS");
-    UART0_SendString("Stopwatch commands: SWENABLE SWSTART SWPAUSE\r\n");
-    UART0_SendString("Keypad: 1=Enable/Disable stopwatch  2=Start/Stop  3=Pause/Resume\r\n");
+    UART0_SendString("Stopwatch commands: SWENABLE SWDISABLE SWSTART SWSTOP SWPAUSE SWRESUME SWSTATUS\r\n");
+    UART0_SendString("Keypad: 1=Enable/Disable  2=Start/Stop  3=Pause/Resume\r\n");
     sendStatus();
 
 
     while(1)
     {
-        switch(rate)
-        {
-        case 0:
-            delay = 2000;
-            break;
-
-        case 1:
-            delay = 1500;
-            break;
-
-        case 2:
-            delay = 1000;
-            break;
-
-        case 3:
-            delay = 750;
-            break;
-
-        case 4:
-            delay = 500;
-            break;
-
-        case 5:
-            delay = 200;
-            break;
-
-        case 6:
-            delay = 100;
-            break;
-
-        case 7:
-            delay = 50;
-            break;
-
-        default:
-            delay = 250;
-            break;
-        }
+        updateRate(rate);
         changeColour(colour);
 
         if(isLightsPaused == 0)
@@ -644,6 +658,7 @@ int main(void)
                             {
                                 rate = 0;
                             }
+                            updateRate(rate);
                             sendStatus();
                         }
                         else if(waiting == 2)
@@ -727,6 +742,7 @@ int main(void)
                                 {
                                     rate = 0;
                                 }
+                                updateRate(rate);
                                 sendStatus();
                             }
                             else if(waiting == 2)
