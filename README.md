@@ -31,18 +31,18 @@ stopwatch, controllable from the serial console or a 4×4 keypad.
 | `COLOUR` | Cycle LED colour (0–7). |
 | `PAUSE` / `RESUME` | Pause/resume the LED blink. |
 | `STATUS` | Print current rate/colour/run state. |
-| `SWENABLE` | Enable the stopwatch display (7-seg switches from status to MM:SS). No-op with a message if already enabled. |
+| `SWENABLE` | Enable the stopwatch display (7-seg switches from status to SS.ms). No-op with a message if already enabled. |
 | `SWDISABLE` | Disable the stopwatch display, reverting the 7-seg to the rate/colour/state readout. No-op with a message if already disabled. |
 | `SWSTART` | Start the stopwatch from 0. Only valid when enabled and idle. |
 | `SWSTOP` | Stop the stopwatch and reset it to 0. Valid when running or paused. |
 | `SWPAUSE` | Pause the stopwatch. Only valid when running. |
 | `SWRESUME` | Resume the stopwatch. Only valid when paused. |
-| `SWSTATUS` | Print current stopwatch state and elapsed MM:SS. |
+| `SWSTATUS` | Print current stopwatch state and elapsed SS.ms (seconds.centiseconds). |
 
 Each stopwatch command is a single explicit action (mirroring `RATE`/`COLOUR`/`PAUSE`/`RESUME` on the LED side) rather than a toggle — calling one from the wrong state prints an "already X" / "not valid" message instead of silently flipping state. Commands are case-sensitive and terminated with `\r` or `\n`.
 
 ## Timing
 
 A SysTick interrupt fires every 10 ms (`msTicks`), which:
-- increments the stopwatch's elapsed-time counter (`swCentis`, in hundredths of a second) whenever it's running, and
+- increments the stopwatch's elapsed-time counter (`swCentis`, in hundredths of a second) whenever it's running — the counter, and the SS.ms display it drives, reset to 0 every 60 seconds and keep counting, and
 - provides the timestamp base for debouncing both the keypad and SW1/SW2 (20-tick / 200 ms minimum gap between accepted presses).
