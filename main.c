@@ -424,12 +424,22 @@ void pollUART(void)
 
         if(strcmp(uartBuffer, "RATE") == 0)
         {
+            if(isLightsPaused == 1){
+                UART0_SendString("Please Unpause before incrementing Rate");
+
+                return;
+            }
             rate = (rate + 1) > 7 ? 0 : rate + 1;
             updateRate(rate);
             sendStatus();
         }
         else if(strcmp(uartBuffer, "COLOUR") == 0)
         {
+            if(isLightsPaused == 1){
+                            UART0_SendString("Please Unpause before incrementing Color");
+
+                            return;
+                        }
             colour = (colour + 1) > 7 ? 0 : colour + 1;
             changeColour(colour);
             sendStatus();
