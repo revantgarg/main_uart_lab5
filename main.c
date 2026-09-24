@@ -202,20 +202,19 @@ void refresh7SegmentDisplay(int isLightsPausedValue, int colourValue, int rateVa
 
 void displayStopwatch(uint32_t centis)
 {
-    uint32_t totalSeconds = centis / 100;
-    uint32_t minutes = (totalSeconds / 60) % 100;
-    uint32_t seconds = totalSeconds % 60;
+    uint32_t seconds = (centis / 100) % 60;    // 2 digits, wraps every 60 s
+    uint32_t ms = centis % 100;                // 2-digit fractional part (centiseconds)
 
-    displayDigit(4, getHEXNumber(minutes / 10));
+    displayDigit(4, getHEXNumber(seconds / 10));
     delayRefresh(500);
 
-    displayDigit(3, getHEXNumber(minutes % 10));
+    displayDigit(3, getHEXNumber(seconds % 10) | 0x80);   // bit7 = decimal point segment
     delayRefresh(500);
 
-    displayDigit(2, getHEXNumber(seconds / 10));
+    displayDigit(2, getHEXNumber(ms / 10));
     delayRefresh(500);
 
-    displayDigit(1, getHEXNumber(seconds % 10));
+    displayDigit(1, getHEXNumber(ms % 10));
     delayRefresh(500);
 }
 
@@ -246,6 +245,12 @@ void UART0_Init(void)
     UART0_CTL_R &= ~UART_CTL_UARTEN;
 
     // 115200 baud @ 16 MHz
+    /*
+     * Integer and fractional parts of the baud-rate divisor for 115200 baud at a 16 MHz
+        system clock (BRD = 16,000,000 / (16×115200) » 8.68, so integer 8 and fractional
+        0.68×64+0.5 » 44).
+      */
+
     UART0_IBRD_R = 8;
     UART0_FBRD_R = 44;
 
@@ -295,9 +300,8 @@ void sendStatus(void)
 void sendStopwatchStatus(void)
 {
     const char *label;
-    uint32_t totalSeconds = swCentis / 100;
-    uint32_t minutes = (totalSeconds / 60) % 100;
-    uint32_t seconds = totalSeconds % 60;
+    uint32_t seconds = (swCentis / 100) % 60;
+    uint32_t ms = swCentis % 100;
 
     switch(swState)
     {
@@ -311,11 +315,11 @@ void sendStopwatchStatus(void)
     UART0_SendString("Stopwatch: ");
     UART0_SendString(label);
     UART0_SendString("  Time: ");
-    UART0_SendChar((char)('0' + (minutes / 10)));
-    UART0_SendChar((char)('0' + (minutes % 10)));
-    UART0_SendChar(':');
     UART0_SendChar((char)('0' + (seconds / 10)));
     UART0_SendChar((char)('0' + (seconds % 10)));
+    UART0_SendChar('.');
+    UART0_SendChar((char)('0' + (ms / 10)));
+    UART0_SendChar((char)('0' + (ms % 10)));
     UART0_SendString("\r\n");
 }
 
@@ -506,27 +510,29 @@ void GPIOPortC_Handler(void);
 
 void Stopwatch_Init(void)
 {
-    GPIO_PORTE_DIR_R |= 0x01;
-    GPIO_PORTE_ODR_R |= 0x01;     // open-drain row
-    GPIO_PORTE_DEN_R |= 0x01;
+    GPIO_PORTE_DIR_R |= 0x01;      // make PE0 as output
+    GPIO_PORTE_ODR_R |= 0x01;     // open-drain row pe0
+    GPIO_PORTE_DEN_R |= 0x01;     // digital enable pe0
     GPIO_PORTE_DATA_R &= ~0x01;   // row held low
 
-    GPIO_PORTC_AFSEL_R &= ~0x70;
+    GPIO_PORTC_AFSEL_R &= ~0x70;    //pc4,5,6 as gpio
     GPIO_PORTC_AMSEL_R &= ~0x70;
-    GPIO_PORTC_DIR_R   &= ~0x70;
+    GPIO_PORTC_DIR_R   &= ~0x70;    // pc4,5,6 as input
     GPIO_PORTC_PUR_R   |= 0x70;
     GPIO_PORTC_DEN_R   |= 0x70;
 
-    GPIO_PORTC_IS_R  &= ~0x70;    // edge sensitive
+    GPIO_PORTC_IS_R  &= ~0x70;    // edge sensitive rather than level
     GPIO_PORTC_IBE_R &= ~0x70;    // single edge
     GPIO_PORTC_IEV_R &= ~0x70;    // falling edge
-    GPIO_PORTC_ICR_R  = 0x70;
-    GPIO_PORTC_IM_R  |= 0x70;
+    GPIO_PORTC_ICR_R  = 0x70;       // clear previous interrupt flags
+    GPIO_PORTC_IM_R  |= 0x70;   // enable interrupt for 456
 
-    NVIC_EN0_R |= (1 << 2);       // IRQ 2 = GPIO Port C
+    NVIC_EN0_R |= (1 << 2);       /*IRQ 2 = GPIO Port C//Enables IRQ number 2 in the NVIC, which on this chip is the GPIO Port C interrupt
+    — without this, the pin-level interrupt flag would set but the CPU would never
+    actually jump to GPIOPortC_Handler*/
 
     // SysTick: 10 ms tick @ 16 MHz system clock
-    NVIC_ST_CTRL_R    = 0;
+    NVIC_ST_CTRL_R    = 0; //disable systick as we are changing configuratioon
     NVIC_ST_RELOAD_R  = 160000 - 1;
     NVIC_ST_CURRENT_R = 0;
     NVIC_ST_CTRL_R    = 0x07;
@@ -539,7 +545,7 @@ void SysTick_Handler(void)
     if(swState == SW_RUNNING)
     {
         swCentis++;
-        if(swCentis >= 360000)   // wrap after 1 hour
+        if(swCentis >= 6000)   // wrap after 60 s
         {
             swCentis = 0;
         }
@@ -548,7 +554,7 @@ void SysTick_Handler(void)
 
 void GPIOPortC_Handler(void)
 {
-    uint32_t status = GPIO_PORTC_MIS_R & 0x70;
+    uint32_t status = GPIO_PORTC_MIS_R & 0x70;//which pin trigger interrupt
 
     if((status & 0x10) && (msTicks - lastPress[0] > DEBOUNCE_TICKS))   // key 1
     {
